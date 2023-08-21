@@ -1,4 +1,5 @@
 #!/bin/sh
+#minux-2.lan
 PATH=/usr/sbin:/sbin:/usr/bin:/bin
 listePays="fr be lu ch de it es"
 
