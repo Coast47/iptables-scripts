@@ -1,0 +1,50 @@
+#!/bin/sh
+PATH=/usr/sbin:/sbin:/usr/bin:/bin
+listePays="fr be lu ch de it es"
+
+for pays in $listePays; do
+  #telechargement des IPs
+  wget -O /tmp/$pays.zone http://www.ipdeny.com/ipblocks/data/aggregated/$pays-aggregated.zone
+
+  #test si le set existe
+  ipset -L set_$pays >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    echo "Création de l'ipset set_$pays"
+    ipset -N set_$pays hash:net
+  else
+    echo "Mise à jour de l'ipset set_$pays"
+    ipset flush set_$pays
+  fi
+
+  #sauvegarde des IPs dans la table pays
+  for ip in $(cat /tmp/$pays.zone ); do ipset -A set_$pays $ip; done
+  #supprime le fichier
+  rm /tmp/$pays.zone
+done
+
+#On restaure IpTables
+#/sbin/iptables-restore < /etc/iptables.firewall.rules
+
+iptables -D DOCKER-USER -j RETURN
+iptables -D DOCKER-USER -j DROP
+iptables -D DOCKER-USER -p tcp  --match multiport --dports 51196 -j ACCEPT
+#iptables -D INPUT -p tcp  --match multiport --dports 25,587 -j ACCEPT
+#iptables -D DOCKER-USER -o docker0 -j ACCEPT
+
+if ! iptables -L | grep -q "192.168.0.0"; then
+  iptables -I DOCKER-USER -s 192.168.0.0/16,172.16.0.0/12,127.0.0.1/32,10.0.0.0/8 -j ACCEPT
+  #iptables -I INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+  iptables -I DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+fi
+
+for pays in $listePays; do
+  if ! iptables -L | grep -q "set_$pays"; then
+    iptables -A DOCKER-USER -m set --match-set set_$pays src -j ACCEPT
+  fi
+done
+
+#iptables -A DOCKER-USER -o docker0 -j ACCEPT
+#iptables -A INPUT -p tcp  --match multiport --dports 25,587 -j ACCEPT
+iptables -A DOCKER-USER -p tcp  --match multiport --dports 51196 -j ACCEPT
+iptables -A DOCKER-USER  -j DROP
+#iptables -A DOCKER-USER -j RETURN
